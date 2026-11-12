@@ -188,6 +188,7 @@ Las 88 órdenes en pérdida dentro de $ Budget + Online Delivery App no son casu
 **Resumen**
 **1. Línea Base Auditada (Python):**  
 8,000 órdenes limpias, $238,854.63 USD en ventas netas y $86,318.38 USD de margen neto (36.14%).
+
 **2. Diagnóstico Quirúrgico (4 Queries SQL):** 
 - Financiero: Aislamiento de las 91 órdenes en pérdida (88 concentradas en micro-tickets de $ Budget por app).
 - Operativo: Cuantificación del cuello de botella en Hora Pico + Tormenta (índice de fricción sube 9x, tiempo total pasa de 25.2 a 39.7 min y calificación cae a 3.90).
