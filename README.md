@@ -144,3 +144,51 @@ display(pd.read_sql_query(query_3, conn))
 **3. Diagnóstico por Categoría de Cocina (SQL 3)**
   - Motor de volumen vs. Motor de margen: Burgers & Fast Food lidera en ganancia total ($18,740.67 USD) por volumen (1,788 órdenes) y tiene la mejor calificación (4.31), pero Japanese & Sushi es la categoría más rentable por pedido ($11.54 USD de margen neto).
   -  Fuga por subsidio innecesario: Categorías como Healthy & Bowls e Indian & Curries están recibiendo el descuento promedio más alto (12.5%), aunque tienen tickets altos y buena aceptación.   
+
+## Aislamiento de Fugas en $ Budget + Exportación 
+Limpia para Power BI Antes de pasar a Power BI, se última consulta SQL quirúrgica para descubrir qué provoca exactamente que esas 88 órdenes de $ Budget en Online Delivery App den pérdida (¿es el porcentaje de descuento o la distancia de entrega?), y de una vez exportamos el CSV limpio listo para Power BI.   
+
+```Python
+# QUERY 4: Autopsia de las órdenes en pérdida ($ Budget + Online Delivery App)
+query_4 = """
+SELECT 
+    CASE WHEN estimated_restaurant_net_margin_usd <= 0 THEN 'En Pérdida (<= $0)' ELSE 'Rentable (> $0)' END AS estado_margen,
+    COUNT(order_id) AS ordenes,
+    ROUND(AVG(order_value_usd), 2) AS venta_bruta_prom,
+    ROUND(AVG(discount_percentage), 1) AS descuento_prom_pct,
+    ROUND(AVG(delivery_distance_km), 2) AS distancia_prom_km,
+    ROUND(AVG(delivery_fee_ratio), 2) AS ratio_tarifa_entrega,
+    ROUND(AVG(estimated_restaurant_net_margin_usd), 2) AS margen_neto_prom
+FROM delivery_orders
+WHERE restaurant_price_tier = '$ Budget' 
+  AND order_channel = 'Online Delivery App'
+GROUP BY estado_margen;
+"""
+
+print("=== SQL 4: AUTOPSIA DE ÓRDENES EN PÉRDIDA ($ BUDGET + APP) ===")
+display(pd.read_sql_query(query_4, conn))
+
+# --- PREPARACIÓN Y EXPORTACIÓN DEL DATASET LIMPIO PARA POWER BI ---
+df['is_profitable'] = df['estimated_restaurant_net_margin_usd'].apply(lambda x: 'Rentable' if x > 0 else 'En Pérdida')
+df['peak_hour_label'] = df['is_peak_hour'].map({1: 'Hora Pico', 0: 'Hora Regular'})
+
+# Guardamos el archivo limpio para descargarlo y cargarlo en Power BI
+df.to_csv('/content/delivery_clean_powerbi.csv', index=False)
+print("\nArchivo 'delivery_clean_powerbi.csv' listo para descargar desde el panel izquierdo de Colab.")
+```
+<img width="884" height="136" alt="image" src="https://github.com/user-attachments/assets/030787ab-530c-409f-aa10-7ab54ff81dbb" />
+
+## Hallazgo 
+Las 88 órdenes en pérdida dentro de $ Budget + Online Delivery App no son casualidad; son una trampa de micro-tickets subsidiados:   
+- Ticket demasiado bajo: Su venta bruta promedio es de apenas $3.60 USD (frente a $15.13 USD en las órdenes rentables del mismo canal).  
+- Doble golpe (Descuento + Logística): A ese ticket diminuto de $3.60 USD se le aplicó un 19.8% de descuento promedio (vs. 12.8% en rentables) y tuvo un ratio de tarifa de entrega de 1.31 (es decir, el costo de envío superó en un 31% el valor de la comida) para recorrer 5.13 km.
+- Resultado: El restaurante terminó pagando $0.17 USD de su bolsillo por cada una de esas entregas.
+- Regla de negocio accionable (tu recomendación ejecutiva): Establecer un pedido mínimo de $8.00 – $10.00 USD en Online Delivery App para restaurantes $ Budget y bloquear descuentos mayores al 15% en tickets inferiores a $12.00 USD. Con esa sola regla eliminas el 96.7% de las pérdidas operativas sin afectar el volumen rentable.
+
+**Resumen**
+** 1. Línea Base Auditada (Python):**  8,000 órdenes limpias, $238,854.63 USD en ventas netas y $86,318.38 USD de margen neto (36.14%).
+** 2. Diagnóstico Quirúrgico (4 Queries SQL):** 
+- Financiero: Aislamiento de las 91 órdenes en pérdida (88 concentradas en micro-tickets de $ Budget por app).
+- Operativo: Cuantificación del cuello de botella en Hora Pico + Tormenta (índice de fricción sube 9x, tiempo total pasa de 25.2 a 39.7 min y calificación cae a 3.90).
+- Comercial: Comparativa de rentabilidad y descuentos por categoría de cocina (Japanese & Sushi líder en margen por orden con $11.54 USD; Burgers & Fast Food líder en volumen y rating con 4.31).
+** 3. Dataset Limpio Exportado:** delivery_clean_powerbi.csv listo para descargar y cargar directo en Power BI.   
