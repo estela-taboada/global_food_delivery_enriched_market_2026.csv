@@ -44,6 +44,7 @@ print(f"Tiempo Total Promedio (Cocina + Entrega): {tiempo_total_prom:.1f} min")
 ```
 <img width="414" height="238" alt="image" src="https://github.com/user-attachments/assets/f064de15-199e-473c-936a-7e76b95eafa4" />
 
+## Hallazgo
 - **Volumen y Limpieza:** 8,000 órdenes auditadas a través de 26 variables, con 0% de valores nulos.
 - **Salud Financiera:**
   - Ventas Brutas: $241,782.71 USD
@@ -53,4 +54,93 @@ print(f"Tiempo Total Promedio (Cocina + Entrega): {tiempo_total_prom:.1f} min")
   Aunque parecen pocas a nivel global, como analista debemos aislarlas: ¿se concentran en un solo canal, en restaurantes Budget o en distancias largas?   
 - **Salud Operativa:**
   - Calificación Promedio: 4.28 / 5.0
-  - Tiempo Total Promedio: 29.3 min   
+  - Tiempo Total Promedio: 29.3 min
+
+## Diagnóstico de Fugas y Fricción Operativa (SQL)
+- Query 1 (Rentabilidad por Nivel de Precio y Canal): ¿Dónde están escondidas esas 91 órdenes en pérdida y qué canal deja mejor margen neto?
+- Query 2 (Impacto de Hora Pico y Clima): ¿Cuánto cae la calificación (4.28 base) y cuánto sube el tiempo (29.3 min base) cuando hay hora pico o mal clima?
+- Query 3 (Top y Bottom Categorías de Cocina): ¿Qué tipo de comida es la más rentable y cuál tiene mayor fricción logística?.
+
+```Python
+import sqlite3
+
+# Creamos una base de datos SQL en memoria y cargamos tu tabla limpia
+conn = sqlite3.connect(':memory:')
+df.to_sql('delivery_orders', conn, index=False, if_exists='replace')
+
+# QUERY 1: Auditoría de Rentabilidad y Órdenes en Pérdida por Segmento de Precio y Canal
+query_1 = """
+SELECT 
+    restaurant_price_tier AS segmento_precio,
+    order_channel AS canal,
+    COUNT(order_id) AS total_ordenes,
+    ROUND(AVG(net_effective_order_price), 2) AS ticket_neto_prom,
+    ROUND(AVG(estimated_restaurant_net_margin_usd), 2) AS margen_neto_prom,
+    SUM(CASE WHEN estimated_restaurant_net_margin_usd <= 0 THEN 1 ELSE 0 END) AS ordenes_en_perdida,
+    ROUND(100.0 * SUM(CASE WHEN estimated_restaurant_net_margin_usd <= 0 THEN 1 ELSE 0 END) / COUNT(order_id), 2) AS pct_perdida
+FROM delivery_orders
+GROUP BY restaurant_price_tier, order_channel
+ORDER BY ordenes_en_perdida DESC, margen_neto_prom ASC;
+"""
+
+# QUERY 2: Impacto Operativo de Hora Pico y Clima en Tiempos y Satisfacción
+query_2 = """
+SELECT 
+    is_peak_hour AS hora_pico,
+    weather_condition AS clima,
+    COUNT(order_id) AS ordenes,
+    ROUND(AVG(estimated_prep_time_min), 1) AS prep_cocina_min,
+    ROUND(AVG(actual_delivery_time_min), 1) AS reparto_min,
+    ROUND(AVG(total_fulfillment_time_min), 1) AS tiempo_total_min,
+    ROUND(AVG(logistics_friction_index), 2) AS indice_friccion,
+    ROUND(AVG(customer_rating), 2) AS rating_prom
+FROM delivery_orders
+GROUP BY is_peak_hour, weather_condition
+ORDER BY rating_prom ASC;
+"""
+
+# QUERY 3: Desempeño Comercial y Logístico por Categoría de Cocina
+query_3 = """
+SELECT 
+    cuisine_category AS categoria_cocina,
+    COUNT(order_id) AS ordenes,
+    ROUND(SUM(estimated_restaurant_net_margin_usd), 2) AS margen_total_usd,
+    ROUND(AVG(estimated_restaurant_net_margin_usd), 2) AS margen_por_orden,
+    ROUND(AVG(discount_percentage), 1) AS descuento_prom_pct,
+    ROUND(AVG(total_fulfillment_time_min), 1) AS tiempo_total_min,
+    ROUND(AVG(customer_rating), 2) AS rating_prom
+FROM delivery_orders
+GROUP BY cuisine_category
+ORDER BY margen_total_usd DESC;
+"""
+
+print("=== SQL 1: RENTABILIDAD POR SEGMENTO Y CANAL ===")
+display(pd.read_sql_query(query_1, conn))
+
+print("\n=== SQL 2: IMPACTO DE HORA PICO Y CLIMA ===")
+display(pd.read_sql_query(query_2, conn))
+
+print("\n=== SQL 3: DESEMPEÑO POR CATEGORÍA DE COCINA ===")
+display(pd.read_sql_query(query_3, conn))
+
+```
+
+<img width="907" height="315" alt="image" src="https://github.com/user-attachments/assets/1e587ae3-3355-4942-8107-af3fa32c8667" />
+
+<img width="831" height="276" alt="image" src="https://github.com/user-attachments/assets/0203d1e7-1cd4-4eb4-89dd-8aeddd753d8b" />
+
+<img width="884" height="250" alt="image" src="https://github.com/user-attachments/assets/e8279281-7265-4d42-b13c-68eff9c86167" />
+
+**1. Diagnóstico de Rentabilidad (SQL 1)**
+- El culpable único de las pérdidas: El 96.7% de todas las órdenes en pérdida (88 de las 91 totales) ocurren en una sola combinación: Restaurantes $ Budget vendiendo a través de Online Delivery App.
+- Cero fugas en otros canales: Ni Takeaway / Pickup ni Dine-In POS tienen una sola orden negativa en ningún nivel de precio.
+- En $ Budget, vender por app deja apenas $3.93 USD de margen neto promedio frente a $6.58 USD en salón (Dine-In POS) —una erosión del 40% en rentabilidad por comisiones, tarifas de entrega y descuentos sobre tickets bajos ($17.38 USD).
+  
+**2. Diagnóstico Operativo (SQL 2)**
+- La tormenta perfecta: Cuando coinciden Hora Pico (1) + Tormenta (Heavy Rain / Storm), el índice de fricción se dispara casi 9 veces respecto a un día despejado fuera de pico (6.11 vs 0.68).
+- Cuello de botella doble (Cocina + Reparto): En ese escenario crítico, el tiempo total sube de 25.2 min a 39.7 min (+14.5 minutos): cocina sube +4.8 min (15.9 a 20.7 min) y reparto sube +9.7 min (9.3 a 19.0 min), hundiendo la calificación promedio por debajo del umbral crítico de 4 estrellas (3.90).
+- En cualquier clima, la Hora Pico agrega invariablemente ~5 minutos extra en preparación de cocina (pasa de ~16 min a ~21 min).
+
+**3. Diagnóstico por Categoría de Cocina (SQL 3)**
+  - Motor de volumen vs. Motor de margen: Burgers & Fast Food lidera en ganancia total ($18,740.67 USD) por volumen (1,788 órdenes) y tiene la mejor calificación (4.31), pero Japanese & Sushi es la categoría más rentable por pedido ($11.54 USD de margen neto).
+  -  Fuga por subsidio innecesario: Categorías como Healthy & Bowls e Indian & Curries están recibiendo el descuento promedio más alto (12.5%), aunque tienen tickets altos y buena aceptación.   
