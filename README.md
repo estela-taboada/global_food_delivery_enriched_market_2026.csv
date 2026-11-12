@@ -186,6 +186,7 @@ Las 88 órdenes en pérdida dentro de $ Budget + Online Delivery App no son casu
 - Regla de negocio accionable (tu recomendación ejecutiva): Establecer un pedido mínimo de $8.00 – $10.00 USD en Online Delivery App para restaurantes $ Budget y bloquear descuentos mayores al 15% en tickets inferiores a $12.00 USD. Con esa sola regla eliminas el 96.7% de las pérdidas operativas sin afectar el volumen rentable.
 
 **Resumen**
+
 **1. Línea Base Auditada (Python):**  
 8,000 órdenes limpias, $238,854.63 USD en ventas netas y $86,318.38 USD de margen neto (36.14%).
 
